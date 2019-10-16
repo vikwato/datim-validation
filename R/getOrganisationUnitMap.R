@@ -5,10 +5,13 @@
 #'
 #' @param organisationUnit of question specified as a UID
 #' @return Returns a data frame  of name,code,id, and categoryOptionCombo (which is the UID of interest)
-#' 
+#' @examples \dontrun{
+#'     ou_map<-getOrganisationUnitMap("KKFzPM8LoXs") #For a specific operating unit
+#'     ou_map_mine<-getOrganisationUnitMap() #Based on your login credentials
+#' }
 getOrganisationUnitMap<-function(organisationUnit=NA) {
   if ( is.na(organisationUnit) ) { organisationUnit<-getOption("organisationUnit") }
-  url<-URLencode(paste0(getOption("baseurl"),"api/organisationUnits.json?&filter=path:like:",organisationUnit,"&fields=id,code,name,shortName&paging=false"))
+  url<-URLencode(paste0(getOption("baseurl"),"api/",api_version(),"/organisationUnits.json?&filter=path:like:",organisationUnit,"&fields=id,code,name,shortName&paging=false"))
   sig<-digest::digest(url,algo='md5', serialize = FALSE)
   sites<-getCachedObject(sig)
   if (is.null(sites)){

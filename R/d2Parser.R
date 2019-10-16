@@ -1,3 +1,71 @@
+
+#' @title Utility function to check that the supplied coding scheme is correct
+#'
+#' @description checkCodingScheme will ensure that all indentifiers 
+#' after parsing are valid UIDs,
+#' or in the case of periods, valid periods. 
+#'
+#' @param data A parsed DHIS2 data payload from d2parser
+#' @return Warnings are issued if the coding scheme is not 
+#' congruent with what has been supplied as a paramater.
+#'  
+#' 
+checkCodingScheme <- function(data) {
+  #This is a very superficial and quick check,
+  #just to be sure that the coding scheme is correct.
+  #Additional validation will be required to be sure data elements,
+  #catcombos and orgunits are properly associated
+  is_valid <- TRUE
+  data_element_check_v <- unique(data$dataElement) %in% getDataElementMap()$id
+  data_element_check <- unique(data$dataElement)[!data_element_check_v]
+  if (length(data_element_check) > 0) {
+    warning(
+      "The following data element identifiers could not be found:",
+      paste(data_element_check, sep = "", collapse = ",")
+    )
+    is_valid <- FALSE
+  }
+  orgunit_check <-
+    unique(data$orgUnit)[!(
+      unique(data$orgUnit)
+      %in% 
+      getOrganisationUnitMap(organisationUnit = getOption("organisationUnit"))$id
+    )]
+  if (length(orgunit_check) > 0) {
+    warning(
+      "The following org unit identifiers could not be found:",
+      paste( orgunit_check, sep = "", collapse = "," )
+    )
+    is_valid <- FALSE
+  }
+  coc_check <-
+    unique(data$categoryOptionCombo)[!(unique(data$categoryOptionCombo) %in% getCategoryOptionCombosMap()$id)]
+  if (length(coc_check) > 0) {
+    warning(
+      "The following category option combo identifiers could not be found:",
+      paste(coc_check, sep = "", collapse = ",")
+    )
+    is_valid <- FALSE
+  }
+  acoc_check <-
+    unique(data$attributeOptionCombo)[!(
+      unique(data$attributeOptionCombo) %in% getMechanismsMap(organisationUnit = getOption("organisationUnit"))$id
+    )]
+  if (length(acoc_check) > 0) {
+    warning(
+      "The following attribute option combo identifiers could not be found:",
+      paste(acoc_check, sep = "", collapse = ",")
+    )
+    is_valid <- FALSE
+  }
+  
+    list("dataElement" = data_element_check,
+       "orgUnit" = orgunit_check,
+       "categoryOptionCombo" = coc_check,
+       "attributeOptionCombo" = acoc_check,
+       "is_valid" = is_valid )
+}
+
 #' @export
 #' @importFrom utils read.csv
 #' @importFrom utils select.list
@@ -15,12 +83,19 @@
 #' then the organisation units are assumed to be already specififed as UIDs
 #' @param idScheme Remapping scheme for category option combos
 #' @param invalidData Exclude any (NA or missing) data from the parsed file?
+#' @param csv_header By default, CSV files are assumed to have a header, otherwise FALSE will allow for 
+#' files without a CSV header. 
 #'
 #' @return Returns a data frame of at least "dataElement","period","orgUnit","categoryOptionCombo","attributeOptionCombo","value"
 #'
 #' @note function(filename="/home/me/foo.xml",type="xml",dataElementIdScheme="code",orgUnitIdScheme="code",idScheme="id")
 #' Note that all values will be returned as characters.
-#'
+#' @examples \dontrun{
+#'     d<-d2Parser("myfile.csv",type="csv",header=TRUE)
+#'     d<-d2Parser("myfile.json",type="json",dataElementIdScheme="code")
+#'     d<-d2Parser("myfile.xml",type="xml",dataElementIdScheme="name")
+#' }
+#' 
 d2Parser <-
   function(filename,
            type,
@@ -28,18 +103,15 @@ d2Parser <-
            dataElementIdScheme = "id",
            orgUnitIdScheme = "id",
            idScheme = "id",
-           invalidData = FALSE) {
-    
-    
+           invalidData = FALSE,
+           csv_header = TRUE) {
     if (is.na(organisationUnit)) {
       #Get the users organisation unit if not specified 
       organisationUnit <- getOption("organisationUnit")
     }
-    
     valid_type <- type %in% c("xml", "json", "csv")
     if (!valid_type) {
-      print("ERROR:Not a valid file type")
-      stop()
+      stop("ERROR:Not a valid file type")
     }
     
     header <-
@@ -60,22 +132,32 @@ d2Parser <-
       data <-
         data.frame(t(sapply(XML::xmlRoot(d) ["dataValue"], XML::xmlAttrs)),
                    row.names = seq(1, XML::xmlSize(XML::xmlRoot(d))))
+
+      
       #Get all the attributes specified in the
       data.attrs <- XML::xmlAttrs(XML::xmlRoot(d))
-      #Period
-      if (!is.na(data.attrs["period"])) {
+      if ( !is.null(data.attrs) ) {
+      if ( !is.na(data.attrs["period"]) ) {
         data$period <- data.attrs["period"]
       }
-      if (!is.na(data.attrs["orgUnit"])) {
+      if ( !is.na(data.attrs["orgUnit"]) ) {
         data$orgUnit <- data.attrs["orgUnit"]
       }
-      if (!is.na(data.attrs["attributeOptionCombo"])) {
+      if ( !is.na(data.attrs["attributeOptionCombo"]) ) {
         data$attributeOptionCombo <- data.attrs["attributeOptionCombo"]
       }
+      }
+      
+      #Names in the XML must correspond exactly
+      if (!Reduce("&",names(data) %in% header)) {
+        stop("XML attributes must be one of the following:", 
+             paste(header,sep="",collapse=",")) }
+      
     }
     
     if (type == "csv") {
-      data <- read.csv(filename)
+      data <- read.csv(filename,header = csv_header,stringsAsFactors = FALSE)
+      data[] <- lapply(data, stringr::str_trim)
       #Get number of columns and assign the header
       names(data)[1:ncol(data)]<-header[1:ncol(data)] 
       #Data element, period and orgunit must be specified
@@ -89,7 +171,9 @@ d2Parser <-
     
     if (type == "json") {
       j <- jsonlite::fromJSON(txt = filename)
+
       data <- j$dataValues
+    
       if (!is.null(j[["period"]])) {
         data$period <- j$period
       }
@@ -99,11 +183,15 @@ d2Parser <-
       if (!is.null(j[["attributeOptionCombo"]])) {
         data$attributeOptionCombo <- j$attributeOptionComboid
       }
+      
+      #Names in the JSON must correspond exactly
+      if ( !Reduce("&", names( data ) %in% header ) ) {
+        stop("JSON attributes must be one of the following:",
+             paste(header,sep="",collapse=",")) }
     }
     
-    
     data <- data[, header[header %in% names(data)]]
-    #data$value<-as.numeric(as.character(data$value))
+
     if (orgUnitIdScheme != "id") {
       data$orgUnit <-
         remapOUs(
@@ -133,24 +221,32 @@ d2Parser <-
     #Data frame needs to be completely flattened to characters
     data <- plyr::colwise(as.character)(data)
     
-    invalid <-
-      function(x) {
-        sapply(x, function(x) {
-          is.na(x) || missing(x) || x == ""
-        })
+    isMissing<-function(x) { x == "" | is.na(x) }
+
+    if (NROW(data) == 1 ) { 
+      valid_rows <- sum(sapply(data,isMissing)) == 0L
+       } else {
+         
+         valid_rows <- purrr::reduce(purrr::map(data, isMissing), `+`) == 0L
       }
-    invalid.rows <-
-      apply(apply(data, 2, invalid), 1, sum) == 0 #Anything which is not complete.
-    if (sum(invalid.rows) != nrow(data)) {
-      foo <- nrow(data) - sum(invalid.rows)
+    
+    if ( sum(valid_rows) != NROW(data) ) {
+      
       msg <-
-        paste(foo,
-              " rows are incomplete. Please check your file to ensure its correct.")
+        paste0( sum(!valid_rows), " rows are incomplete. Please check your file to ensure its correct.")
       warning(msg)
     }
+    
     if (!invalidData) {
-      data <- data[invalid.rows, ]
+      data <- data[valid_rows, ]
     }
-    return(data)
+    
+    code_scheme_check<-checkCodingScheme(data)
+    
+    if (!code_scheme_check$is_valid) {
+      return(code_scheme_check)
+    } else{
+      data
+    }
     
   }

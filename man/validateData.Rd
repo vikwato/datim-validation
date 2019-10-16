@@ -4,8 +4,8 @@
 \alias{validateData}
 \title{Function which checks the of a DATIM data payload agaist define validation rules}
 \usage{
-validateData(data, organisationUnit = NA, return_violations_only = TRUE,
-  parallel = TRUE)
+validateData(data, organisationUnit = NA,
+  return_violations_only = TRUE, parallel = FALSE, datasets = NA)
 }
 \arguments{
 \item{data}{d2Parser data frame}
@@ -14,7 +14,10 @@ validateData(data, organisationUnit = NA, return_violations_only = TRUE,
 
 \item{return_violations_only}{Paramater to return only violations or all validation rule evalualtions.}
 
-\item{parallel}{Should the rules be evaluated in parallel.}
+\item{parallel}{Should the rules be evaluated in parallel. Default is to not evaluate in parallel.}
+
+\item{datasets}{Vector of dataset UIDs which can  be used to restrict 
+the validation rules which will be applied.}
 }
 \value{
 Returns a data frame with validation rule results.
@@ -22,4 +25,14 @@ Returns a data frame with validation rule results.
 \description{
 validateData should be supplied a d2Parser compliant data frame.
 The data frame is checked dynamically against validation rules defined in the DATIM server.
+}
+\examples{
+\dontrun{
+  d<-d2Parser("myfile.csv",type="csv")
+  vr_rules<-validateData(d)
+  doMC::registerDoMC(cores=4)
+  vr_rules<-validateData(d,parallel=TRUE)
+  ds<-getCurrentMERDataSets()
+  vr_rules<-validateData(d,parallel=TRUE,datasets=ds)
+}
 }
